@@ -21,12 +21,20 @@ class Config:
 
 app = FastAPI(title="EdTech AI Platform", version="3.0.0")
 
+# ВИПРАВЛЕННЯ 1: Більш конкретні CORS налаштування
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://www.alsie.app",
+        "https://alsie.app",
+        "http://localhost:3000",  # для локальної розробки
+        "http://localhost:8000"   # для локальної розробки
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=3600,  # Кешування preflight запитів на 1 годину
 )
 
 xano = XanoClient(Config.XANO_BASE_URL, Config.XANO_API_KEY)
@@ -45,6 +53,12 @@ async def health():
         "xano_configured": bool(Config.XANO_BASE_URL),
         "openai_configured": bool(Config.OPENAI_API_KEY)
     }
+
+
+# ВИПРАВЛЕННЯ 2: Додаємо явний обробник OPTIONS для preflight
+@app.options("/chat/message")
+async def chat_message_options():
+    return {"status": "ok"}
 
 
 @app.post("/chat/message")
@@ -72,7 +86,14 @@ async def process_student_message(message: StudentMessage):
             last_air_id = messages_data[-1]["id"] if messages_data else 0
             await xano.save_message_pair(message.ub_id, message.content, full_response, last_air_id)
         
-        return StreamingResponse(generate(), media_type="text/plain")
+        return StreamingResponse(
+            generate(), 
+            media_type="text/plain",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no"  # Вимикає буферизацію для Nginx
+            }
+        )
         
     except Exception as e:
         print(f"ERROR: {type(e).__name__}: {str(e)}")
